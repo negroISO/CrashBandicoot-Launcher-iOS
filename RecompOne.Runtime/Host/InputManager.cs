@@ -10,6 +10,7 @@ using MouseEvent = RecompOne.Runtime.Events.MouseEvent;
 using ControllerEvent = RecompOne.Runtime.Events.ControllerEvent;
 using MouseAction = RecompOne.Runtime.Events.MouseAction;
 using EvMouseButton = RecompOne.Runtime.Events.MouseButton;
+using SdlGameController = Silk.NET.SDL.GameController;
 
 namespace RecompOne.Runtime.Host;
 
@@ -18,8 +19,8 @@ internal static unsafe class InputManager
     static IKeyboard?_keyboard;
     static IMouse?_mouse;
     static Sdl?_sdl;
-    static GameController* _pad0;
-    static GameController* _pad1;
+    static SdlGameController* _pad0;
+    static SdlGameController* _pad1;
 
     const int AxisThreshold = 8000;
     const int StickThreshold = 16000;
@@ -374,7 +375,7 @@ internal static unsafe class InputManager
         Controller.RightY = Controller.PhysicalRightY;
     }
 
-    static ushort PadState(GameController* ctrl, GamepadBindings pad, ushort s)
+    static ushort PadState(SdlGameController* ctrl, GamepadBindings pad, ushort s)
     {
         s = Apply(ctrl, pad.Cross,    Controller.Cross,    s);
         s = Apply(ctrl, pad.Circle,   Controller.Circle,   s);
@@ -395,7 +396,7 @@ internal static unsafe class InputManager
         return s;
     }
 
-    static ushort Apply(GameController* ctrl, int[] bindings, ushort bit, ushort s)
+    static ushort Apply(SdlGameController* ctrl, int[] bindings, ushort bit, ushort s)
     {
         foreach (var binding in bindings)
             if (Pressed(ctrl, binding))
@@ -403,7 +404,7 @@ internal static unsafe class InputManager
         return s;
     }
 
-    static bool Pressed(GameController* ctrl, int binding)
+    static bool Pressed(SdlGameController* ctrl, int binding)
     {
         if (_sdl == null) return false;
         if (binding == LeftTrigger)

@@ -101,8 +101,6 @@ internal static class HostWindow
             var options = WindowOptions.Default with
             {
                 Size = new Vector2D<int>(1280, 720),
-                // Hide off-screen until SetParent — avoids a brief second-window flash.
-                Position = embed ? new Vector2D<int>(-32000, -32000) : new Vector2D<int>(100, 100),
                 Title = title,
                 VSync = ConfigManager.View.VSync,
                 UpdatesPerSecond = 0,
@@ -111,6 +109,16 @@ internal static class HostWindow
                 WindowState = !embed && ConfigManager.View.Fullscreen ? WindowState.Fullscreen : WindowState.Normal,
                 API = new GraphicsAPI(ContextAPI.OpenGL, ContextProfile.Core, ContextFlags.Default, new APIVersion(4, 3)),
             };
+            // Setting Position makes Silk call glfwSetWindowPos before its
+            // native window exists on macOS 27, passing null to GLFW and
+            // segfaulting. Keep the default position except for the Windows
+            // embed path, which intentionally parks the child off-screen.
+            if (OperatingSystem.IsWindows())
+            {
+                options.Position = embed
+                    ? new Vector2D<int>(-32000, -32000)
+                    : new Vector2D<int>(100, 100);
+            }
             _window = Silk.NET.Windowing.Window.Create(options);
             Console.WriteLine("[Host] window object created, initializing GLFW/GL…");
             Console.Out.Flush();

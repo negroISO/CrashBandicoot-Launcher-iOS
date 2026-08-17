@@ -69,6 +69,12 @@ public static class Runtime
     /// <summary>Queue a pause-menu toggle (safe from WinForms key routing).</summary>
     public static void RequestPauseMenuToggle() => Host.InputManager.RequestPauseMenuToggle();
 
+    /// <summary>
+    /// Queue Crash 1's native Start (pause) → Select (return to map) sequence.
+    /// Mobile hosts use this to implement the desktop pause overlay's map exit.
+    /// </summary>
+    public static void RequestExitToMap() => Host.ExitToMapInjector.Begin();
+
     public static void Initialize(string title)
     {
         Diagnostics.ConsoleMirror.Install();

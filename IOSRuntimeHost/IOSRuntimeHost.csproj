@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-ios27.0</TargetFramework>
+    <SupportedOSPlatformVersion>17.0</SupportedOSPlatformVersion>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>CrashIOSHost</AssemblyName>
+    <RootNamespace>CrashBandicoot.IOSRuntime</RootNamespace>
+    <ApplicationId>com.negroiso.crashlauncher.ios</ApplicationId>
+    <ApplicationDisplayVersion>0.1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <Codesign>false</Codesign>
+    <MtouchEnableSGenConc>true</MtouchEnableSGenConc>
+    <MtouchInterpreter>None</MtouchInterpreter>
+    <NoWarn>$(NoWarn);XCODE_27_0_PREVIEW</NoWarn>
+    <!-- Generated Crash sources are supplied locally from an owned disc and
+         must never be committed. A public host build omits this property. -->
+    <DefineConstants Condition="'$(CrashIosGeneratedGame)' == 'true'">$(DefineConstants);CRASH_IOS_GENERATED</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\RecompOne.Runtime\RecompOne.Runtime.csproj" />
+    <None Include="Info.plist" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(CrashIosGeneratedSources)' != ''">
+    <Compile Include="$(CrashIosGeneratedSources)\**\*.cs"
+             Link="Generated\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <!-- Xcode 27 beta removed the private LinkSecurity framework while the
+       .NET iOS 27 registrar still emits -weak_framework LinkSecurity. These
+       empty ABI stubs keep that weak link resolvable until the workload is
+       fixed. IOSRuntimeHost/Native/LinkSecurity.c is the source. -->
+  <ItemGroup>
+    <NativeReference Include="Native/Simulator/LinkSecurity.framework"
+                     Kind="Framework"
+                     Condition="'$(RuntimeIdentifier)' == '' or $([System.String]::Copy('$(RuntimeIdentifier)').Contains('iossimulator'))" />
+    <NativeReference Include="Native/Device/LinkSecurity.framework"
+                     Kind="Framework"
+                     Condition="'$(RuntimeIdentifier)' != '' and !$([System.String]::Copy('$(RuntimeIdentifier)').Contains('iossimulator'))" />
+  </ItemGroup>
+</Project>

@@ -354,7 +354,10 @@ internal static class GlShaders
     {
         if (!gles) return source;
 
-        var header = "#version 320 es";
+        // Apple's OpenGL ES implementation exposes ES 3.0 GLSL, not the ES
+        // 3.2 grammar used by Android drivers. ES 3.0 still has the integer
+        // textures/texel fetch and flat interpolation this backend needs.
+        var header = OperatingSystem.IsIOS() ? "#version 300 es" : "#version 320 es";
         if (source.Contains("index = 1", StringComparison.Ordinal))
             header += opaqueOnly
                 ? "\n#define GLES_OPAQUE_ONLY 1"
@@ -370,7 +373,9 @@ internal static class GlShaders
                     "\n#define GLES_FRAMEBUFFER_FETCH 1" +
                     "\n#define GLES_FRAMEBUFFER_FETCH_ARM 1" +
                     "\n#define GLES_DESTINATION_COLOR gl_LastFragColorARM",
-                _ => "\n#extension GL_EXT_blend_func_extended : require",
+                _ => OperatingSystem.IsIOS()
+                    ? "\n#define GLES_OPAQUE_ONLY 1"
+                    : "\n#extension GL_EXT_blend_func_extended : require",
             };
         header += "\n#define GLES_UNIFIED_BLEND 1\nprecision highp float;\nprecision highp int;";
         return source

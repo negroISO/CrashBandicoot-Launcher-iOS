@@ -49,12 +49,14 @@ public sealed class GlBackend : IGpuBackend
     int _uTexWindow, _uBlend, _uBlendOpaque, _uSetMask, _uCheckMask, _uPosBias, _uFbInv, _uFilterMode, _uFilterStrength, _uDedither;
     int _ufTexWindow, _ufBlendOpaque, _ufSetMask, _ufCheckMask, _ufPosBias, _ufFbInv, _ufFilterMode, _ufFilterStrength, _ufDedither;
     int _uPresentOrigin, _uPresentSize, _uPresentTexSize, _uPresent24Origin, _uPresent24Size;
+    int _directDrawsSincePresent;
 
     public bool Ready { get; private set; }
     public string LastDiagnostic { get; private set; } = "ok";
     public int LastFrameFlushes { get; private set; }
     public int LastFrameWritebacks { get; private set; }
     public int LastFrameVertices { get; private set; }
+    public bool PreferVramPresentation { get; set; }
     public GlesFramebufferFetchPath FramebufferFetchPath => _glesFramebufferFetchPath;
 
     public GlBackend(GL gl) { _gl = gl; _vram = new GlVram(gl); }
@@ -332,6 +334,7 @@ public sealed class GlBackend : IGpuBackend
         int blend = f.BlendMode;
         bool subtractBatch = transparent && blend == 2;
         var target = Classify();
+        if (target is null) ++_directDrawsSincePresent;
         if (_count > 0 && (target != _kTarget || !DesiredMatches(transparent, blend))) Flush();
         if (_count + vertsNeeded > MaxVerts) Flush();
         CheckTextureFeedback(f);
@@ -681,6 +684,14 @@ public sealed class GlBackend : IGpuBackend
         if (!Ready || w <= 0 || h <= 0) return (0, 0, 0, GpuHle.OutputAspect);
         _frame++;
         Flush();
+        // Native 2D/HUD writes can target VRAM after the accelerated 3D scene.
+        // On compatibility drivers that mix those paths, present the complete
+        // authoritative VRAM page instead of only the newest display RT.
+        bool presentFromVram = PreferVramPresentation && _directDrawsSincePresent != 0;
+        _directDrawsSincePresent = 0;
+        if (presentFromVram)
+            foreach (var dirty in _rts)
+                if (dirty is { Dirty: true }) Writeback(dirty);
 
         for (int i = 0; i < _rts.Length; i++)
         {
@@ -698,7 +709,7 @@ public sealed class GlBackend : IGpuBackend
         }
 
         GlDisplayRt? src = null;
-        if (!rgb24)
+        if (!presentFromVram && !rgb24)
             foreach (var rt in _rts)
             {
                 // A dirty RT is the authoritative framebuffer even when a static
@@ -863,12 +874,13 @@ public sealed class GlBackend : IGpuBackend
     /// EGL window surface. This is Android's fast path: no glReadPixels, managed
     /// pixel conversion, Bitmap allocation, or CPU-to-GPU upload.
     /// </summary>
-    public void PresentToDefaultFramebuffer(int surfaceWidth, int surfaceHeight, float aspect)
+    public void PresentToDefaultFramebuffer(int surfaceWidth, int surfaceHeight, float aspect,
+        uint defaultFramebuffer = 0)
     {
         if (!Ready || _presentTex == 0 || surfaceWidth <= 0 || surfaceHeight <= 0)
             return;
 
-        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, defaultFramebuffer);
         _gl.Viewport(0, 0, (uint)surfaceWidth, (uint)surfaceHeight);
         _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.Blend);

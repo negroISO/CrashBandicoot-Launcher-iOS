@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tools", "tools", "{07C2787E
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CrashBandicoot.ModTools", "tools\CrashBandicoot.ModTools\CrashBandicoot.ModTools.csproj", "{4F61F671-7F53-48EB-A057-3563AF3BD127}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IOSRuntimeHost", "IOSRuntimeHost\IOSRuntimeHost.csproj", "{70199021-FC5E-4BA9-808E-B0E47B6795CF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -69,6 +71,18 @@ Global
 		{4F61F671-7F53-48EB-A057-3563AF3BD127}.Release|x64.Build.0 = Release|Any CPU
 		{4F61F671-7F53-48EB-A057-3563AF3BD127}.Release|x86.ActiveCfg = Release|Any CPU
 		{4F61F671-7F53-48EB-A057-3563AF3BD127}.Release|x86.Build.0 = Release|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Debug|x64.Build.0 = Debug|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Debug|x86.Build.0 = Debug|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Release|x64.ActiveCfg = Release|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Release|x64.Build.0 = Release|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Release|x86.ActiveCfg = Release|Any CPU
+		{70199021-FC5E-4BA9-808E-B0E47B6795CF}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

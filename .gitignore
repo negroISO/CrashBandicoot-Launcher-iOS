@@ -126,6 +126,7 @@ carda.sav
 cardb.sav
 save/
 game/
+tmp/
 *.sav
 *.mcd
 *.mcr
