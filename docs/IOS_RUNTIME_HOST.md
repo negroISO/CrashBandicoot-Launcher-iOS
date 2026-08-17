@@ -82,3 +82,33 @@ SIMCTL_CHILD_CRASH_CUE_PATH='/path/to/Crash Bandicoot (USA).cue' \
 - The simulator workload currently needs the empty `LinkSecurity` ABI stubs in
   `IOSRuntimeHost/Native` because .NET iOS 27 emits a weak framework reference
   that Xcode 27 beta no longer provides.
+
+## Handoff checkpoint
+
+Branch: `ios-runtime-host`; public fork:
+`https://github.com/negroISO/CrashBandicoot-Launcher`.
+
+The latest physical run reached the title, opening gameplay, the pause overlay,
+and the return-to-map flow with DualSense input. Console evidence showed:
+
+- `start=True` followed by `cross=true menu=True` and then
+  `cross=true menu=false`, proving pause open/resume through GameController.
+- Repeated gameplay `cross=true menu=false` events and level reloads, proving
+  guest input remains live after menu resume/map return.
+- AVAudioEngine started successfully after the complete-callback mixer fix.
+
+Next diagnostic steps, in order:
+
+1. Validate music/SFX sync and pace after the complete-callback audio fix.
+2. Capture a physical gameplay frame where HUD/sprite/object content is absent
+   and correlate it with direct-VRAM versus display-RT draw statistics.
+3. Profile game update, GL render/present, and CAEAGLLayer present time.
+   Preserve 60 virtual-vblank cadence when a rendered frame runs long instead
+   of allowing guest speed to follow dips in presentation FPS.
+4. Keep the 1× correctness baseline until HUD and pacing are stable; do not
+   re-enable enhanced filtering/resolution while diagnosing missing content.
+
+Local ignored evidence is under
+`tmp/validation/2026-08-16-ios-runtime-host/`. Do not copy the owned disc,
+generated `game/` directory, or build products into Git or the public RAG
+snapshot.
