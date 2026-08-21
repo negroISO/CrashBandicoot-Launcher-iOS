@@ -594,6 +594,7 @@ public sealed class MainActivity : Activity
                 backend.InitGl(gles: true, framebufferFetch: gpuInfo.FramebufferFetchPath);
                 if (!backend.Ready)
                     throw new InvalidOperationException("The Android OpenGL ES renderer failed to initialize.");
+                backend.PreferVramPresentation = true;
                 var configured = gpuInfo.ConfigureBackend(
                     backend, ConfigManager.View.InternalResolution);
                 Android.Util.Log.Info("CrashGPU",

@@ -190,8 +190,8 @@ public sealed class GlBackend : IGpuBackend
 
     public void SetDrawEnv(in HleDrawEnv env) => _env = env;
 
-    const int FbSlackW = 64;
-    const int FbSlackH = 32;
+    const int FbSlackW = 256;
+    const int FbSlackH = 128;
 
     GlDisplayRt? Classify()
     {

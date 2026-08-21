@@ -1,196 +1,64 @@
-# =============================================================================
-# Crash Bandicoot Launcher — LEGAL / SAFETY .gitignore
-# If something here looks "useful to commit", it is NOT. Sony/Activision own
-# Crash. We ship TOOLS + RUNTIME only. Never push dumps or game-derived code.
-# When in doubt: do NOT force-add. Ask before `git add -f`.
-# =============================================================================
+# Build artifacts
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.out
 
-# --- IDE / OS junk -----------------------------------------------------------
-.idea/
-.vs/
+# Dependencies
+node_modules/
+venv/
+.venv/
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+target/
+.gradle/
+
+# Editor/IDE files
 .vscode/
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
-Thumbs.db
-Desktop.ini
-.DS_Store
-*~
-
-# --- Build / publish outputs (never the release zip with a dump inside) ------
-bin/
-obj/
-out/
-publish/
-publish-*/
-publish-single/
-artifacts/
-# Generated from root icon.png by publish_release.py
-CrashBandicoot.Launcher/app.ico
-[Dd]ebug/
-[Rr]elease/
-# Keep in-game ImGui debug panels (matched by [Dd]ebug/ above)
-!**/Panels/Debug/
-!**/Panels/Debug/**
-x64/
-x86/
-*.appx
-*.msix
-*.msi
-*.nupkg
-
-# --- Retail disc dumps & images (THE lawsuit fuel) ---------------------------
-# PS1 / generic optical
-*.bin
-*.cue
-*.iso
-*.img
-*.ecm
-*.mds
-*.mdf
-*.nrg
-*.ccd
-*.sub
-*.img.bak
-*.toc
-*.chd
-*.cso
-*.isz
-*.pbp
-*.cdi
-*.dump
-*.raw
-
-# RecompOne BIOS font resources required by the runtime
-!RecompOne.Runtime/Bios/Fonts/font1.raw
-!RecompOne.Runtime/Bios/Fonts/font2.raw
-
-# Common dump naming (even without extension tricks)
-**/Crash Bandicoot.*
-**/crash*bandicoot*.bin
-**/crash*bandicoot*.cue
-**/SCUS_949.00
-**/SCUS-94900*
-**/SCUS_949*
-
-# --- Disc overlay payloads (mod asset folders) -------------------------------
-# Infrastructure may ship disc/README.md stubs only. Never commit replacements
-# extracted from the retail disc (NSD/NSF/STR/XA/etc.).
-examples/mods/**/disc/**
-!examples/mods/**/disc/README.md
-!examples/mods/**/disc/**/README.md
-# Runtime mods folder at repo root only (bin/mods is already covered by bin/)
-/mods/
-# CatalogDiscovery texture dumps (local user captures — never commit game art)
-/captures/
-
-# Common Crash disc asset extensions anywhere (belt and suspenders)
-*.NSD
-*.NSF
-*.nsd
-*.nsf
-*.VAB
-*.vab
-*.VH
-*.vh
-*.SEQ
-*.seq
-*.STR
-*.str
-*.XA
-*.xa
-
-# --- Recompiled / derived game code (derivative of retail EXE) ---------------
-# Generated C# from the recompiler — create only on the user's machine
-CrashBandicoot.Recompiled/**
-!CrashBandicoot.Recompiled/README.md
-**/_gate_regen/
-**/_test_apply*/
-**/_patch_*main.cs
-game.recomp.dll
-**/game.recomp.dll
-**/game.recomp.pdb
-# Accidental drops of generated sources anywhere in the tree
-**/Recompiled/main.cs
-**/Recompiled/Entry.cs
-**/Recompiled/Stubs.cs
-# LocalAppData legacy path (old builds) — never commit if copied here
-/recomp/
-**/CrashBandicoot-Launcher/recomp/
-
-# --- Runtime / player data next to the exe ----------------------------------
-settings.json
-interface.ini
-carda.sav
-cardb.sav
-save/
-game/
-tmp/
-*.sav
-*.mcd
-*.mcr
-memcard*
-*.srm
-
-# --- Logs / crash dumps / temp -----------------------------------------------
-logs/
-*.log
+.idea/
+*.swp
+*.swo
 *.tmp
-*.temp
-*.dmp
-*.stackdump
-hs_err_pid*
 
-# --- Secrets / credentials (belt and suspenders) -----------------------------
+# System files
+.DS_Store
+Thumbs.db
 .env
-.env.*
-!.env.example
-credentials*.json
-*secret*
-*apikey*
-*.pfx
-*.p12
-*.pem
-*.key
+.env.local
+*.env.*
 
-# --- Native / tooling noise --------------------------------------------------
-*.pdb
-crash-*.dmp
-minidump*
+# Logs
+*.log
 
-# --- Optional: local notes that might contain dump paths ---------------------
-LOCAL.md
-TODO.local.md
-*.local.json
-run.bat
-docs/HANDOFF_MODDING_P3_ASSETS.md
-docs/HANDOFF_MODDING_P4_TOOLS.md
-docs/HANDOFF_MODDING_P5_HOTRELOAD.md
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
-# --- Android launcher --------------------------------------------------------
-# Android Studio / Gradle local state and generated packages.
-**/.gradle/
-**/.kotlin/
-**/local.properties
-**/.externalNativeBuild/
-**/.cxx/
-**/build/
-AndroidRuntimeHost/captures/
-*.apk
-*.aab
-*.apks
-*.jks
-*.keystore
-keystore.properties
-/signing/android-release.keystore
-/signing/keystore.properties
-
-# --- Local debug captures (never commit) ------------------------------------
-/_tools/
-/_device_*
-/_intro-*
-/_log_*
-/_phone-*
-/_spu-*
-/_uidump.xml
+# Compressed files
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.zst
+*.lz4
+*.lzh
+*.cab
+*.arj
+*.rpm
+*.deb
+*.Z
+*.lz
+*.lzo
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.tar.zst
