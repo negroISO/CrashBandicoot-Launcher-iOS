@@ -506,6 +506,7 @@ internal static class HostWindow
         _glBackend.InitGl();
         Hle.GpuHle.Active = _glBackend.Ready;
         Hle.GpuHle.Backend = _glBackend;
+        _glBackend.PreferVramPresentation = true;
         Hle.GpuHle.NativeResolution = internalRes <= 1;
         Hle.GpuHle.TextureFilter = ConfigManager.View.TextureFilter;
         Hle.GpuHle.TextureFilterStrength = ConfigManager.View.TextureFilterStrength;

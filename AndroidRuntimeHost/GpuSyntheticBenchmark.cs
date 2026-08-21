@@ -65,6 +65,7 @@ static class GpuSyntheticBenchmark
             if (!backend.Ready)
                 throw new InvalidOperationException(
                     $"Renderer initialization failed: {backend.LastDiagnostic}");
+            backend.PreferVramPresentation = true;
 
             var configured = gpu.ConfigureBackend(backend, scale);
             result.TextureBarrierActive = configured.textureBarrier;
