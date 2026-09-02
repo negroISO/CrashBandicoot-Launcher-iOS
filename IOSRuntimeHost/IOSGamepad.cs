@@ -32,19 +32,20 @@ internal static class IOSGamepad
 
     public static void Publish(Action<string>? setStatus = null)
     {
+        if (_autoPress)
+        {
+            var synthetic = AutoPressButtons();
+            Controller.SetPhysicalPadState(synthetic, 0x80, 0x80, 0x80, 0x80, true);
+            PublishEdges(synthetic);
+            if (MenuActive)
+                Controller.SetPhysicalPadState(0, 0x80, 0x80, 0x80, 0x80, false);
+            return;
+        }
+
         var controller = GCController.Controllers?
             .FirstOrDefault(item => item.ExtendedGamepad is not null);
         if (controller?.ExtendedGamepad is not { } pad)
         {
-            if (_autoPress)
-            {
-                var synthetic = AutoPressButtons();
-                Controller.SetPhysicalPadState(synthetic, 0x80, 0x80, 0x80, 0x80, true);
-                PublishEdges(synthetic);
-                if (MenuActive)
-                    Controller.SetPhysicalPadState(0, 0x80, 0x80, 0x80, 0x80, false);
-                return;
-            }
             Controller.SetPhysicalPadState(0, 0x80, 0x80, 0x80, 0x80, false);
             return;
         }

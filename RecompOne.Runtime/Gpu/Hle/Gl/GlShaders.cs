@@ -284,8 +284,14 @@ internal static class GlShaders
         }
 
         void main() {
+        // Preserve the destination rather than discarding on Apple's
+        // framebuffer-fetch path: discard can suppress an entire sprite/object
+        // draw when its texture contains transparent texels.
         #ifdef GLES_FRAMEBUFFER_FETCH
-            if (uCheckMask != 0 && GLES_DESTINATION_COLOR.a >= 0.5) discard;
+            if (uCheckMask != 0 && GLES_DESTINATION_COLOR.a >= 0.5) {
+                FragColor = GLES_DESTINATION_COLOR;
+                return;
+            }
         #else
             if (uCheckMask != 0 && texelFetch(uDest, ivec2(gl_FragCoord.xy), 0).a >= 0.5) discard;
         #endif
@@ -302,7 +308,14 @@ internal static class GlShaders
             int rawU = dFdx(uv.x) < 0.0 ? int(ceil(uv.x - 0.0001)) : int(floor(uv.x + 0.0001));
             int rawV = dFdy(uv.y) < 0.0 ? int(ceil(uv.y - 0.0001)) : int(floor(uv.y + 0.0001));
             vec4 nearest = sampleNearest(ivec2(rawU, rawV));
+        #ifdef GLES_FRAMEBUFFER_FETCH
+            if (isTransparent(nearest)) {
+                FragColor = GLES_DESTINATION_COLOR;
+                return;
+            }
+        #else
             if (isTransparent(nearest)) discard;
+        #endif
 
             vec4 texel = applyFilter(uv, nearest, uFilterStrength);
             ivec3 c8;
