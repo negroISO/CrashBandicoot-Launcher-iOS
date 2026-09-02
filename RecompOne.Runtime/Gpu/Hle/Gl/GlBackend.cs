@@ -673,6 +673,11 @@ public sealed class GlBackend : IGpuBackend
             _vram.Barrier();
         else if (_glesTextureBarrier != null)
             _glesTextureBarrier();
+        else if (OperatingSystem.IsIOS())
+            // Apple GLES exposes no texture-barrier extension; gl.Flush does not
+            // resolve sampling the VRAM texture while drawing to it. gl.Finish is
+            // the only correct (slow) serialization on iOS.
+            _gl.Finish();
         else
             _gl.Flush();
     }
