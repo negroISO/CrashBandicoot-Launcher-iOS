@@ -67,9 +67,11 @@ SIMCTL_CHILD_CRASH_CUE_PATH='/path/to/Crash Bandicoot (USA).cue' \
 
 - iOS cannot run the desktop/Android on-device Roslyn pipeline or dynamically
   load `game.recomp.dll`; generated sources must be compiled into the app.
-- Some 2D HUD/sprite and object rendering is still missing or inconsistent.
-  A conservative VRAM-presentation fallback is enabled when direct VRAM draws
-  occur, but it is not yet a complete correctness fix.
+- Direct VRAM/HUD writes now commit against the active display RT before
+  switching targets, multiple dirty display RTs are composited in submission
+  order, and VRAM presentation is selected only when those paths require it.
+  A fresh physical gameplay capture is still needed to confirm HUD and object
+  correctness on-device.
 - Gameplay frame rate varies between roughly 40 and 60 FPS at 1×; because the
   guest is frame-count driven, long frames currently change game speed. This
   needs profiling and pacing work.

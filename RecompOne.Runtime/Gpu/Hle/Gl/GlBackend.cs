@@ -21,9 +21,17 @@ public sealed class GlBackend : IGpuBackend
     readonly GlDisplayRt?[] _rts = new GlDisplayRt?[2];
     long _rtStamp;
     long _frame;
+    long _drawStamp;
+    long _lastDirectDrawStamp = -1;
     int _frameFlushes;
+    int _frameDirectFlushes;
     int _frameWritebacks;
     int _frameVertices;
+    int _frameDirectDraws;
+    int _frameDirtyRts;
+    bool _framePresentFromVram;
+    bool _directVramDirty;
+    int _directVramX0, _directVramY0, _directVramX1, _directVramY1;
 
     uint _vao, _vbo, _presentVao, _presentVbo, _progPrim, _progPrimFast, _progPresent, _progPresent24;
     uint _presentFbo, _presentTex;
@@ -49,13 +57,16 @@ public sealed class GlBackend : IGpuBackend
     int _uTexWindow, _uBlend, _uBlendOpaque, _uSetMask, _uCheckMask, _uPosBias, _uFbInv, _uFilterMode, _uFilterStrength, _uDedither;
     int _ufTexWindow, _ufBlendOpaque, _ufSetMask, _ufCheckMask, _ufPosBias, _ufFbInv, _ufFilterMode, _ufFilterStrength, _ufDedither;
     int _uPresentOrigin, _uPresentSize, _uPresentTexSize, _uPresent24Origin, _uPresent24Size;
-    int _directDrawsSincePresent;
 
     public bool Ready { get; private set; }
     public string LastDiagnostic { get; private set; } = "ok";
     public int LastFrameFlushes { get; private set; }
+    public int LastFrameDirectFlushes { get; private set; }
     public int LastFrameWritebacks { get; private set; }
     public int LastFrameVertices { get; private set; }
+    public int LastFrameDirectDraws { get; private set; }
+    public int LastFrameDirtyRts { get; private set; }
+    public bool LastFramePresentFromVram { get; private set; }
     public bool PreferVramPresentation { get; set; }
     public GlesFramebufferFetchPath FramebufferFetchPath => _glesFramebufferFetchPath;
 
@@ -257,6 +268,70 @@ public sealed class GlBackend : IGpuBackend
         return fresh;
     }
 
+    void MarkDirectVramRect(int x, int y, int w, int h)
+    {
+        int x0 = Math.Max(0, x), y0 = Math.Max(0, y);
+        int x1 = Math.Min(VramShadow.Width - 1, x + w - 1);
+        int y1 = Math.Min(VramShadow.Height - 1, y + h - 1);
+        if (x0 > x1 || y0 > y1) return;
+
+        if (!_directVramDirty)
+        {
+            _directVramX0 = x0; _directVramY0 = y0;
+            _directVramX1 = x1; _directVramY1 = y1;
+        }
+        else
+        {
+            _directVramX0 = Math.Min(_directVramX0, x0);
+            _directVramY0 = Math.Min(_directVramY0, y0);
+            _directVramX1 = Math.Max(_directVramX1, x1);
+            _directVramY1 = Math.Max(_directVramY1, y1);
+        }
+        _directVramDirty = true;
+    }
+
+    void MarkDirectVramClip()
+    {
+        int w = _kClipX1 - _kClipX0 + 1;
+        int h = _kClipY1 - _kClipY0 + 1;
+        if (w > 0 && h > 0) MarkDirectVramRect(_kClipX0, _kClipY0, w, h);
+    }
+
+    // VRAM loads/copies/fills are texture or framebuffer maintenance. They do
+    // not by themselves require the VRAM present path; existing RTs are
+    // synchronized immediately, and texture-page writes outside a display area
+    // never affect presentation.
+    void MarkDirectVramTransfer(int x, int y, int w, int h)
+    {
+        if (_rts.Any(rt => rt is not null && rt.Intersects(x, y, w, h))) return;
+        if (!GpuHle.RectsIntersect(x, y, w, h)) return;
+        MarkDirectVramRect(x, y, w, h);
+    }
+
+    bool DirectVramIntersects(GlDisplayRt rt) =>
+        _directVramDirty &&
+        _directVramX0 <= rt.X + rt.W - 1 && rt.X <= _directVramX1 &&
+        _directVramY0 <= rt.Y + rt.H - 1 && rt.Y <= _directVramY1;
+
+    void ChangeTarget(GlDisplayRt? target)
+    {
+        if (_count > 0) Flush();
+
+        // Commit an accelerated framebuffer before switching to direct VRAM.
+        // Later HUD/sprite pixels then modify this frame's scene instead of a
+        // present-time RT writeback overwriting them.
+        if (_kTarget is { Dirty: true } old && target == null)
+            Writeback(old);
+
+        // Bring direct-VRAM content into an existing RT before drawing there
+        // again, otherwise a present-time RT writeback can erase it.
+        if (_kTarget == null && target is { } next && DirectVramIntersects(next))
+            SyncRtFromVram(next, _directVramX0, _directVramY0,
+                _directVramX1 - _directVramX0 + 1, _directVramY1 - _directVramY0 + 1);
+
+        _kTarget = target;
+    }
+
     void Writeback(GlDisplayRt rt)
     {
         _frameWritebacks++;
@@ -295,7 +370,12 @@ public sealed class GlBackend : IGpuBackend
     void SyncRtsFromVram(int x, int y, int w, int h)
     {
         foreach (var rt in _rts)
-            if (rt != null && rt.Intersects(x, y, w, h)) SyncRtFromVram(rt, x, y, w, h);
+            if (rt != null && rt.Intersects(x, y, w, h))
+            {
+                SyncRtFromVram(rt, x, y, w, h);
+                rt.Dirty = true;
+                rt.LastDrawFrame = _frame;
+            }
     }
 
     void CheckTextureFeedback(in PrimFlags f)
@@ -334,7 +414,12 @@ public sealed class GlBackend : IGpuBackend
         int blend = f.BlendMode;
         bool subtractBatch = transparent && blend == 2;
         var target = Classify();
-        if (target is null) ++_directDrawsSincePresent;
+        if (target != _kTarget) ChangeTarget(target);
+        if (target == null)
+        {
+            MarkDirectVramClip();
+            ++_frameDirectDraws;
+        }
         if (_count > 0 && (target != _kTarget || !DesiredMatches(transparent, blend))) Flush();
         if (_count + vertsNeeded > MaxVerts) Flush();
         CheckTextureFeedback(f);
@@ -419,6 +504,8 @@ public sealed class GlBackend : IGpuBackend
     public void FillRect(int x, int y, int w, int h, ushort color15)
     {
         Flush();
+        MarkDirectVramTransfer(x, y, w, h);
+        _lastDirectDrawStamp = ++_drawStamp;
         _vram.Fill(x, y, w, h, color15);
         foreach (var rt in _rts)
         {
@@ -430,6 +517,11 @@ public sealed class GlBackend : IGpuBackend
                 rt.LastDrawFrame = _frame;
             }
             else SyncRtFromVram(rt, x, y, w, h);
+            if (!rt.Covers(x, y, x + w - 1, y + h - 1))
+            {
+                rt.Dirty = true;
+                rt.LastDrawFrame = _frame;
+            }
         }
     }
 
@@ -448,6 +540,8 @@ public sealed class GlBackend : IGpuBackend
     {
         Flush();
         WritebackDirtyIntersecting(sx, sy, w, h);
+        MarkDirectVramTransfer(dx, dy, w, h);
+        _lastDirectDrawStamp = ++_drawStamp;
         _vram.CopyRect(sx, sy, dx, dy, w, h);
         SyncRtsFromVram(dx, dy, w, h);
     }
@@ -455,6 +549,8 @@ public sealed class GlBackend : IGpuBackend
     public void WriteVram(int x, int y, int w, int h, ReadOnlySpan<ushort> px)
     {
         Flush();
+        MarkDirectVramTransfer(x, y, w, h);
+        _lastDirectDrawStamp = ++_drawStamp;
         _vram.WriteRect(x, y, w, h, px);
         SyncRtsFromVram(x, y, w, h);
     }
@@ -515,6 +611,8 @@ public sealed class GlBackend : IGpuBackend
         uint destTex;
         if (rt == null)
         {
+            _frameDirectFlushes++;
+            _lastDirectDrawStamp = ++_drawStamp;
             _vram.BindDraw();
             destTex = _vram.Texture;
         }
@@ -650,7 +748,12 @@ public sealed class GlBackend : IGpuBackend
         }
 
         _gl.Disable(EnableCap.ScissorTest);
-        if (rt != null) { rt.Dirty = true; rt.LastDrawFrame = _frame; }
+        if (rt != null)
+        {
+            rt.Dirty = true;
+            rt.LastDrawFrame = _frame;
+            rt.LastDrawStamp = ++_drawStamp;
+        }
         _count = 0;
     }
 
@@ -689,19 +792,36 @@ public sealed class GlBackend : IGpuBackend
         if (!Ready || w <= 0 || h <= 0) return (0, 0, 0, GpuHle.OutputAspect);
         _frame++;
         Flush();
-        // Native 2D/HUD writes can target VRAM after the accelerated 3D scene.
-        // On compatibility drivers that mix those paths, present the complete
-        // authoritative VRAM page instead of only the newest display RT.
-        bool presentFromVram = PreferVramPresentation && _directDrawsSincePresent != 0;
-        _directDrawsSincePresent = 0;
-        if (presentFromVram)
-            foreach (var dirty in _rts)
-                if (dirty is { Dirty: true }) Writeback(dirty);
+
+        var dirtyRts = _rts.Where(static rt => rt is { Dirty: true }).Select(static rt => rt!).ToArray();
+        _frameDirtyRts = dirtyRts.Length;
+        _framePresentFromVram = PreferVramPresentation &&
+            (_directVramDirty || _frameDirectDraws != 0 || dirtyRts.Length > 1 ||
+             (rgb24 && dirtyRts.Length != 0));
+
+        // Native 2D/HUD writes can target VRAM after the accelerated 3D scene,
+        // and two display areas can receive authoritative content in one frame.
+        // Composite every dirty RT into the complete VRAM page, in submission
+        // order, instead of showing only whichever RT happens to be newest.
+        if (_framePresentFromVram)
+        {
+            Array.Sort(dirtyRts, (a, b) => a.LastDrawStamp.CompareTo(b.LastDrawStamp));
+            foreach (var dirty in dirtyRts)
+            {
+                // A direct draw submitted after this RT is already newer in
+                // VRAM. Do not let the older, whole-RT blit overwrite it.
+                if (_lastDirectDrawStamp > dirty.LastDrawStamp && DirectVramIntersects(dirty))
+                    continue;
+                Writeback(dirty);
+            }
+        }
+
+        _directVramDirty = false;
 
         // The VRAM texture was a draw target this frame (direct-VRAM batches
         // and the writeback blits above). Serialize before the present pass
         // samples it, or the presented frame can miss exactly that content.
-        if (presentFromVram)
+        if (_framePresentFromVram)
             Barrier();
 
         for (int i = 0; i < _rts.Length; i++)
@@ -720,7 +840,7 @@ public sealed class GlBackend : IGpuBackend
         }
 
         GlDisplayRt? src = null;
-        if (!presentFromVram && !rgb24)
+        if (!_framePresentFromVram && !rgb24)
             foreach (var rt in _rts)
             {
                 // A dirty RT is the authoritative framebuffer even when a static
@@ -815,11 +935,19 @@ public sealed class GlBackend : IGpuBackend
         _gl.DrawArrays(PrimitiveType.TriangleStrip, 0, 4);
 
         LastFrameFlushes = _frameFlushes;
+        LastFrameDirectFlushes = _frameDirectFlushes;
         LastFrameWritebacks = _frameWritebacks;
         LastFrameVertices = _frameVertices;
+        LastFrameDirectDraws = _frameDirectDraws;
+        LastFrameDirtyRts = _frameDirtyRts;
+        LastFramePresentFromVram = _framePresentFromVram;
         _frameFlushes = 0;
+        _frameDirectFlushes = 0;
         _frameWritebacks = 0;
         _frameVertices = 0;
+        _frameDirectDraws = 0;
+        _frameDirtyRts = 0;
+        _framePresentFromVram = false;
 
         _gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
         return (_presentTex, fbW, fbH, aspect);

@@ -59,7 +59,12 @@ internal sealed class GlesRuntimeHost : IRuntimePlatformHost
             if (elapsed >= 2.0)
             {
                 Console.WriteLine(
-                    $"[CrashIOSGLES] fps={_fpsFrames / elapsed:F2} frames={_frames}");
+                    $"[CrashIOSGLES] fps={_fpsFrames / elapsed:F2} frames={_frames} " +
+                    $"disp=({gpu.DisplayX},{gpu.DisplayY} {gpu.DisplayWidth}x{gpu.DisplayHeight}24={gpu.Display24Bit}) " +
+                    $"rt/direct/dirty/wb/vram={_surface.Backend.LastFrameFlushes}/" +
+                    $"{_surface.Backend.LastFrameDirectFlushes}/{_surface.Backend.LastFrameDirtyRts}/" +
+                    $"{_surface.Backend.LastFrameWritebacks}/{_surface.Backend.LastFramePresentFromVram} " +
+                    $"verts/draws={_surface.Backend.LastFrameVertices}/{_surface.Backend.LastFrameDirectDraws}");
                 _fpsWindow = now;
                 _fpsFrames = 0;
             }

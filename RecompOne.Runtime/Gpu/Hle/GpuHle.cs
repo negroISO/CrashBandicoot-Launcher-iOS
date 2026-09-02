@@ -90,6 +90,18 @@ public static class GpuHle
 
     public static DispRect GetRect(int i) => _rects[i];
 
+    public static bool RectsIntersect(int x, int y, int w, int h)
+    {
+        for (int i = 0; i < _rects.Length; i++)
+        {
+            var r = _rects[i];
+            if (r.Valid && r.W > 0 && r.H > 0 &&
+                x < r.X + r.W && r.X < x + w && y < r.Y + r.H && r.Y < y + h)
+                return true;
+        }
+        return false;
+    }
+
     public static int WideMargin(int w)
     {
         // No side pads unless FOV expand is actually drawing into them (avoids stale gutter junk).
