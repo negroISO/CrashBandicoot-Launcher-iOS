@@ -698,6 +698,12 @@ public sealed class GlBackend : IGpuBackend
             foreach (var dirty in _rts)
                 if (dirty is { Dirty: true }) Writeback(dirty);
 
+        // The VRAM texture was a draw target this frame (direct-VRAM batches
+        // and the writeback blits above). Serialize before the present pass
+        // samples it, or the presented frame can miss exactly that content.
+        if (presentFromVram)
+            Barrier();
+
         for (int i = 0; i < _rts.Length; i++)
         {
             if (_rts[i] is not { } rt) continue;
