@@ -9,10 +9,26 @@ internal static class IOSGamepad
     static string? _lastName;
     static ushort _lastPressed;
 
+    // Headless device validation: with CRASH_IOS_AUTOPRESS=1 and no physical
+    // controller, synthesize Start (leave title) then Cross (close the host
+    // pause overlay) so real gameplay/HUD can be reached without input hardware.
+    static readonly bool _autoPress =
+        Environment.GetEnvironmentVariable("CRASH_IOS_AUTOPRESS") == "1";
+    static long _autoPressStart = -1;
+
     public static bool MenuActive { get; set; }
     public static event Action? StartPressed;
     public static event Action? CrossPressed;
     public static event Action? SelectPressed;
+
+    static ushort AutoPressButtons()
+    {
+        if (_autoPressStart < 0) _autoPressStart = Environment.TickCount64;
+        var t = (Environment.TickCount64 - _autoPressStart) / 1000.0;
+        if (t is >= 2.0 and < 2.8) return Controller.Start;
+        if (t is >= 3.5 and < 4.1) return Controller.Cross;
+        return 0;
+    }
 
     public static void Publish(Action<string>? setStatus = null)
     {
@@ -20,6 +36,15 @@ internal static class IOSGamepad
             .FirstOrDefault(item => item.ExtendedGamepad is not null);
         if (controller?.ExtendedGamepad is not { } pad)
         {
+            if (_autoPress)
+            {
+                var synthetic = AutoPressButtons();
+                Controller.SetPhysicalPadState(synthetic, 0x80, 0x80, 0x80, 0x80, true);
+                PublishEdges(synthetic);
+                if (MenuActive)
+                    Controller.SetPhysicalPadState(0, 0x80, 0x80, 0x80, 0x80, false);
+                return;
+            }
             Controller.SetPhysicalPadState(0, 0x80, 0x80, 0x80, 0x80, false);
             return;
         }
@@ -52,28 +77,7 @@ internal static class IOSGamepad
             AxisByte(-pad.RightThumbstick.YAxis.Value),
             true);
 
-        if ((pressed & Controller.Start) != (_lastPressed & Controller.Start))
-        {
-            Console.WriteLine(
-                $"[CrashIOSPad] start={(pressed & Controller.Start) != 0}");
-            if ((pressed & Controller.Start) != 0)
-                StartPressed?.Invoke();
-        }
-        if ((pressed & Controller.Select) != (_lastPressed & Controller.Select))
-        {
-            Console.WriteLine(
-                $"[CrashIOSPad] select={(pressed & Controller.Select) != 0}");
-            if ((pressed & Controller.Select) != 0)
-                SelectPressed?.Invoke();
-        }
-        if ((pressed & Controller.Cross) != (_lastPressed & Controller.Cross) &&
-            (pressed & Controller.Cross) != 0)
-        {
-            Console.WriteLine(
-                $"[CrashIOSPad] cross=true menu={MenuActive}");
-            CrossPressed?.Invoke();
-        }
-        _lastPressed = pressed;
+        PublishEdges(pressed);
 
         if (MenuActive)
         {
@@ -87,6 +91,20 @@ internal static class IOSGamepad
             _lastName = name;
             setStatus($"Gamepad connected: {name}");
         }
+    }
+
+    static void PublishEdges(ushort pressed)
+    {
+        if ((pressed & Controller.Start) != (_lastPressed & Controller.Start) &&
+            (pressed & Controller.Start) != 0)
+            StartPressed?.Invoke();
+        if ((pressed & Controller.Select) != (_lastPressed & Controller.Select) &&
+            (pressed & Controller.Select) != 0)
+            SelectPressed?.Invoke();
+        if ((pressed & Controller.Cross) != (_lastPressed & Controller.Cross) &&
+            (pressed & Controller.Cross) != 0)
+            CrossPressed?.Invoke();
+        _lastPressed = pressed;
     }
 
     static ushort Button(GCControllerButtonInput? input, ushort bit) =>
