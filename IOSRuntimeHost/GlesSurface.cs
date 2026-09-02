@@ -42,16 +42,18 @@ public sealed class GlesView : UIView
         Backend = new GlBackend(GL);
         var extensions = GL.GetStringS(StringName.Extensions);
         var fetchPath = GlesFramebufferFetchPath.None;
-        if (extensions.Contains("GL_EXT_shader_framebuffer_fetch", StringComparison.Ordinal))
+        if (extensions.Contains("GL_EXT_shader_framebuffer_fetch", StringComparison.Ordinal) &&
+            Environment.GetEnvironmentVariable("CRASH_IOS_FB_FETCH") == "ext")
             fetchPath = GlesFramebufferFetchPath.Ext;
-        else if (extensions.Contains("GL_ARM_shader_framebuffer_fetch", StringComparison.Ordinal))
+        else if (extensions.Contains("GL_ARM_shader_framebuffer_fetch", StringComparison.Ordinal) &&
+            Environment.GetEnvironmentVariable("CRASH_IOS_FB_FETCH") == "arm")
             fetchPath = GlesFramebufferFetchPath.Arm;
-        Console.WriteLine(
-            $"[CrashIOSGLES] fetch={fetchPath} extensions={extensions}");
         Backend.InitGl(gles: true, fetchPath);
         if (!Backend.Ready)
             throw new InvalidOperationException("RecompOne GLES backend initialization failed");
         Backend.PreferVramPresentation = true;
+        Console.WriteLine(
+            $"[CrashIOSGLES] fetch={fetchPath} scale={GlVram.Scale} vramPresent={Backend.PreferVramPresentation}");
         GpuHle.Backend = Backend;
         GpuHle.Active = true;
         GpuHle.NativeResolution = ConfigManager.View.InternalResolution <= 1;

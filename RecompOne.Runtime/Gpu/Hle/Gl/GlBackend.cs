@@ -694,7 +694,43 @@ public sealed class GlBackend : IGpuBackend
                                  _glesShadingRate != null && GlVram.Scale >= 8;
             if (coarseShading) _glesShadingRate!(0x96A9); // GL_SHADING_RATE_2X2_PIXELS_QCOM
 
-            if (_glesFramebufferFetchPath != GlesFramebufferFetchPath.None)
+            bool iosFixedBlend = _gles && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None &&
+                                 OperatingSystem.IsIOS();
+            if (iosFixedBlend)
+            {
+                // iOS None is a correctness fallback. It intentionally has no
+                // second shader output, so use ordinary constant-color blending.
+                if (!_kTransparent)
+                {
+                    _gl.Disable(EnableCap.Blend);
+                    _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                }
+                else
+                {
+                    _gl.Enable(EnableCap.Blend);
+                    _gl.BlendFuncSeparate(BlendingFactor.ConstantColor, BlendingFactor.ConstantAlpha,
+                        BlendingFactor.One, BlendingFactor.Zero);
+                    if (_kBlend == 2)
+                    {
+                        _gl.BlendEquation(BlendEquationModeEXT.FuncAdd);
+                        SetBlendColor(0f, 1f);
+                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+
+                        if (readsDrawTarget) Barrier();
+                        _gl.BlendEquationSeparate(BlendEquationModeEXT.FuncReverseSubtract, BlendEquationModeEXT.FuncAdd);
+                        SetBlendColor(1f, 1f);
+                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                    }
+                    else
+                    {
+                        _gl.BlendEquation(BlendEquationModeEXT.FuncAdd);
+                        SetBlendColor(_kBlend switch { 0 => 0.5f, 3 => 0.25f, _ => 1f },
+                            _kBlend == 0 ? 0.5f : 1f);
+                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                    }
+                }
+            }
+            else if (_glesFramebufferFetchPath != GlesFramebufferFetchPath.None)
             {
                 _gl.Disable(EnableCap.Blend);
                 _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
@@ -766,6 +802,8 @@ public sealed class GlBackend : IGpuBackend
     }
 
     void SetBlend(float src, float dst) => _gl.Uniform4(_uBlend, src, src, src, dst);
+
+    void SetBlendColor(float src, float dst) => _gl.BlendColor(src, src, src, dst);
 
     // Prefer the driver's GLES texture-barrier extension. It resolves the PS1
     // VRAM feedback dependency without stalling the CPU after every batch.

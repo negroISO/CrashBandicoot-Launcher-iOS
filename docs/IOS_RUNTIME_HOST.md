@@ -70,8 +70,10 @@ SIMCTL_CHILD_CRASH_CUE_PATH='/path/to/Crash Bandicoot (USA).cue' \
 - Direct VRAM/HUD writes now commit against the active display RT before
   switching targets, multiple dirty display RTs are composited in submission
   order, and VRAM presentation is selected only when those paths require it.
-  A fresh physical gameplay capture is still needed to confirm HUD and object
-  correctness on-device.
+- iOS now defaults to the non-fetch GLES path because Apple's framebuffer-fetch
+  path still misses gameplay objects on device. Set `CRASH_IOS_FB_FETCH=ext`
+  only for A/B diagnostics. A fresh physical gameplay capture is still needed
+  to confirm the fallback and frame rate.
 - Gameplay frame rate varies between roughly 40 and 60 FPS at 1×; because the
   guest is frame-count driven, long frames currently change game speed. This
   needs profiling and pacing work.
