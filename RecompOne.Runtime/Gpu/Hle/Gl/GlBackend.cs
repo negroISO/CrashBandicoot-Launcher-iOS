@@ -57,8 +57,8 @@ public sealed class GlBackend : IGpuBackend
     int _kBlend, _kSetMask, _kCheckMask;
     int _kTwAndX, _kTwAndY, _kTwOrX, _kTwOrY;
     int _kClipX0, _kClipY0, _kClipX1, _kClipY1;
-    int _uTexWindow, _uBlend, _uBlendOpaque, _uSetMask, _uCheckMask, _uPosBias, _uFbInv, _uFilterMode, _uFilterStrength, _uDedither;
-    int _ufTexWindow, _ufBlendOpaque, _ufSetMask, _ufCheckMask, _ufPosBias, _ufFbInv, _ufFilterMode, _ufFilterStrength, _ufDedither;
+    int _uTexWindow, _uBlend, _uBlendOpaque, _uSetMask, _uCheckMask, _uPosBias, _uFbInv, _uFilterMode, _uFilterStrength, _uDedither, _uDestOrigin;
+    int _ufTexWindow, _ufBlendOpaque, _ufSetMask, _ufCheckMask, _ufPosBias, _ufFbInv, _ufFilterMode, _ufFilterStrength, _ufDedither, _ufDestOrigin;
     int _uPresentOrigin, _uPresentSize, _uPresentTexSize, _uPresent24Origin, _uPresent24Size;
 
     public bool Ready { get; private set; }
@@ -117,6 +117,7 @@ public sealed class GlBackend : IGpuBackend
         _uFilterMode = _gl.GetUniformLocation(_progPrim, "uFilterMode");
         _uFilterStrength = _gl.GetUniformLocation(_progPrim, "uFilterStrength");
         _uDedither = _gl.GetUniformLocation(_progPrim, "uDedither");
+        _uDestOrigin = _gl.GetUniformLocation(_progPrim, "uDestOrigin");
 
         _gl.UseProgram(_progPrim);
         _gl.Uniform1(_gl.GetUniformLocation(_progPrim, "uVram"), 0);
@@ -141,6 +142,7 @@ public sealed class GlBackend : IGpuBackend
             _ufFilterMode = _gl.GetUniformLocation(_progPrimFast, "uFilterMode");
             _ufFilterStrength = _gl.GetUniformLocation(_progPrimFast, "uFilterStrength");
             _ufDedither = _gl.GetUniformLocation(_progPrimFast, "uDedither");
+            _ufDestOrigin = _gl.GetUniformLocation(_progPrimFast, "uDestOrigin");
 
             _gl.UseProgram(_progPrimFast);
             _gl.Uniform1(_gl.GetUniformLocation(_progPrimFast, "uVram"), 0);
@@ -565,7 +567,7 @@ public sealed class GlBackend : IGpuBackend
         _vram.ReadRect(x, y, w, h, px);
     }
 
-    void BindPrimState(bool fast, GlDisplayRt? rt, uint destTex, bool manualDest = false)
+    void BindPrimState(bool fast, GlDisplayRt? rt, uint destTex, int destX = 0, int destY = 0)
     {
         uint program = fast ? _progPrimFast : _progPrim;
         int uTexWindow = fast ? _ufTexWindow : _uTexWindow;
@@ -577,13 +579,14 @@ public sealed class GlBackend : IGpuBackend
         int uFilterMode = fast ? _ufFilterMode : _uFilterMode;
         int uFilterStrength = fast ? _ufFilterStrength : _uFilterStrength;
         int uDedither = fast ? _ufDedither : _uDedither;
+        int uDestOrigin = fast ? _ufDestOrigin : _uDestOrigin;
 
         _gl.UseProgram(program);
         _gl.BindVertexArray(_vao);
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, _vram.Texture);
         _gl.ActiveTexture(TextureUnit.Texture1);
-        _gl.BindTexture(TextureTarget.Texture2D, _kCheckMask != 0 || manualDest ? destTex : _vram.Texture);
+        _gl.BindTexture(TextureTarget.Texture2D, _kCheckMask != 0 ? destTex : _vram.Texture);
         _gl.ActiveTexture(TextureUnit.Texture0);
         if (rt != null)
         {
@@ -601,6 +604,7 @@ public sealed class GlBackend : IGpuBackend
         _gl.Uniform1(uFilterMode, _gles && GlVram.Scale >= 8 ? 0 : GpuHle.EffectiveTextureFilter);
         _gl.Uniform1(uFilterStrength, GpuHle.TextureFilterStrength);
         _gl.Uniform1(uDedither, GpuHle.DeditherActive ? 1 : 0);
+        _gl.Uniform2(uDestOrigin, (float)destX, (float)destY);
         _gl.Uniform4(uBlendOpaque, 1f, 1f, 1f, 0f);
     }
 
@@ -626,46 +630,21 @@ public sealed class GlBackend : IGpuBackend
             destTex = rt.Tex;
         }
 
-        // Display render targets are separate from the PS1 texture VRAM. Most
-        // Crash batches therefore have no feedback dependency at all. Only
-        // synchronize when the fragment shader genuinely reads the texture that
-        // is currently attached for drawing (mask checks, or direct VRAM draws).
-        bool readsDrawTarget = (_kCheckMask != 0 && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None) ||
-                               (rt == null && BatchSamplesVram());
-        bool iosManualDest = _gles && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None &&
-                             OperatingSystem.IsIOS();
-        bool manualDestNeedsCopy = iosManualDest && (_kCheckMask != 0 || _kTransparent);
-        if (manualDestNeedsCopy)
-        {
-            // No framebuffer fetch means transparent fragments cannot read the
-            // texture that is currently attached for drawing. Snapshot the
-            // current destination once per batch and blend from that copy.
-            int srcW = rt?.TexW ?? GlVram.Width;
-            int srcH = rt?.TexH ?? GlVram.Height;
-            EnsureDestScratch(srcW, srcH);
-            _gl.Disable(EnableCap.ScissorTest);
-            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, rt?.Fbo ?? _vram.Fbo);
-            _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _destScratchFbo);
-            _gl.BlitFramebuffer(0, 0, srcW, srcH, 0, 0, srcW, srcH,
-                ClearBufferMask.ColorBufferBit, BlitFramebufferFilter.Nearest);
-            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, rt?.Fbo ?? _vram.Fbo);
-            _gl.Enable(EnableCap.ScissorTest);
-            destTex = _destScratchTex;
-            readsDrawTarget = rt == null && BatchSamplesVram();
-        }
-        if (readsDrawTarget)
-        {
-            Barrier();
-        }
-
         _gl.Disable(EnableCap.DepthTest);
         _gl.Disable(EnableCap.CullFace);
         _gl.Enable(EnableCap.ScissorTest);
         int s = GlVram.Scale;
+        int destX, destY, destW, destH, destMaxW, destMaxH;
         if (rt == null)
         {
             int sw = _kClipX1 - _kClipX0 + 1, sh = _kClipY1 - _kClipY0 + 1;
             _gl.Scissor(_kClipX0 * s, _kClipY0 * s, (uint)Math.Max(0, sw * s), (uint)Math.Max(0, sh * s));
+            destX = _kClipX0 * s;
+            destY = _kClipY0 * s;
+            destW = sw * s;
+            destH = sh * s;
+            destMaxW = GlVram.Width;
+            destMaxH = GlVram.Height;
         }
         else
         {
@@ -673,6 +652,49 @@ public sealed class GlBackend : IGpuBackend
             int cx1 = _kClipX1 - rt.X + rt.Margin, cy1 = _kClipY1 - rt.Y;
             if (rt.Margin > 0 && _kClipX0 <= rt.X && _kClipX1 >= rt.X + rt.W - 1) { cx0 = 0; cx1 = rt.Wide1x - 1; }
             _gl.Scissor(cx0 * s, cy0 * s, (uint)Math.Max(0, (cx1 - cx0 + 1) * s), (uint)Math.Max(0, (cy1 - cy0 + 1) * s));
+            destX = cx0 * s;
+            destY = cy0 * s;
+            destW = (cx1 - cx0 + 1) * s;
+            destH = (cy1 - cy0 + 1) * s;
+            destMaxW = rt.TexW;
+            destMaxH = rt.TexH;
+        }
+
+        // Mask checks are the only case that still needs a destination copy.
+        // Normal PS1 transparency uses constant-color fixed-function blending,
+        // so the expensive per-batch framebuffer-fetch emulation is avoided.
+        bool iosManualMask = _gles && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None &&
+                             OperatingSystem.IsIOS() && _kCheckMask != 0 && destW > 0 && destH > 0;
+        if (iosManualMask)
+        {
+            int x1 = Math.Min(destMaxW, destX + destW);
+            int y1 = Math.Min(destMaxH, destY + destH);
+            destX = Math.Max(0, destX);
+            destY = Math.Max(0, destY);
+            destW = Math.Max(0, x1 - destX);
+            destH = Math.Max(0, y1 - destY);
+        }
+
+        if (iosManualMask && destW > 0 && destH > 0)
+        {
+            EnsureDestScratch(destW, destH);
+            _gl.Disable(EnableCap.ScissorTest);
+            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, rt?.Fbo ?? _vram.Fbo);
+            _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _destScratchFbo);
+            _gl.BlitFramebuffer(destX, destY, destX + destW, destY + destH,
+                0, 0, destW, destH, ClearBufferMask.ColorBufferBit, BlitFramebufferFilter.Nearest);
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, rt?.Fbo ?? _vram.Fbo);
+            _gl.Enable(EnableCap.ScissorTest);
+            destTex = _destScratchTex;
+        }
+
+        // Display render targets are separate from the PS1 texture VRAM. Most
+        // Crash batches therefore have no feedback dependency at all. Only
+        // synchronize when a direct VRAM batch samples its own draw target.
+        bool readsDrawTarget = rt == null && BatchSamplesVram();
+        if (readsDrawTarget)
+        {
+            Barrier();
         }
 
         _gl.BindBuffer(BufferTargetARB.ArrayBuffer, _vbo);
@@ -685,8 +707,8 @@ public sealed class GlBackend : IGpuBackend
             // order (important on the map) without repeating buffer uploads and
             // uniform setup for every blend-mode change during Crash's spin.
             _gl.BufferSubData<GlVertex>(BufferTargetARB.ArrayBuffer, 0, _verts.AsSpan(0, _count));
-            BindPrimState(true, rt, destTex, iosManualDest);
-            BindPrimState(false, rt, destTex, iosManualDest);
+            BindPrimState(true, rt, destTex, destX, destY);
+            BindPrimState(false, rt, destTex, destX, destY);
             _gl.Disable(EnableCap.Blend);
 
             int runStart = 0;
@@ -709,7 +731,7 @@ public sealed class GlBackend : IGpuBackend
         }
         else
         {
-            BindPrimState(false, rt, destTex, iosManualDest);
+            BindPrimState(false, rt, destTex, destX, destY);
             _gl.BufferSubData<GlVertex>(BufferTargetARB.ArrayBuffer, 0, _verts.AsSpan(0, _count));
 
             // Coarse shading cannot accelerate a mixed framebuffer-fetch shader,
@@ -718,13 +740,38 @@ public sealed class GlBackend : IGpuBackend
                                  _glesShadingRate != null && GlVram.Scale >= 8;
             if (coarseShading) _glesShadingRate!(0x96A9); // GL_SHADING_RATE_2X2_PIXELS_QCOM
 
-            if (iosManualDest)
+            bool iosFixedBlend = _gles && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None &&
+                                 OperatingSystem.IsIOS();
+            if (iosFixedBlend)
             {
-                // The shader resolves PS1 transparency from the destination
-                // snapshot. Fixed-function blending would apply the wrong
-                // factors when a PS1 texture has a zero mask bit.
-                _gl.Disable(EnableCap.Blend);
-                _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                if (!_kTransparent)
+                {
+                    _gl.Disable(EnableCap.Blend);
+                    _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                }
+                else
+                {
+                    // ES3 on Apple has no dual-source output. The shader has
+                    // already discarded fully transparent texels, so a constant
+                    // factor implements the four PS1 blend modes without a
+                    // per-batch destination copy.
+                    _gl.Enable(EnableCap.Blend);
+                    _gl.BlendFuncSeparate(BlendingFactor.ConstantColor, BlendingFactor.ConstantAlpha,
+                        BlendingFactor.One, BlendingFactor.Zero);
+                    if (_kBlend == 2)
+                    {
+                        _gl.BlendEquationSeparate(BlendEquationModeEXT.FuncReverseSubtract, BlendEquationModeEXT.FuncAdd);
+                        SetBlendColor(1f, 1f);
+                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                    }
+                    else
+                    {
+                        _gl.BlendEquation(BlendEquationModeEXT.FuncAdd);
+                        SetBlendColor(_kBlend switch { 0 => 0.5f, 3 => 0.25f, _ => 1f },
+                            _kBlend == 0 ? 0.5f : 1f);
+                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
+                    }
+                }
             }
             else if (_glesFramebufferFetchPath != GlesFramebufferFetchPath.None)
             {
@@ -799,12 +846,15 @@ public sealed class GlBackend : IGpuBackend
 
     void SetBlend(float src, float dst) => _gl.Uniform4(_uBlend, src, src, src, dst);
 
+    void SetBlendColor(float src, float dst) => _gl.BlendColor(src, src, src, dst);
+
     unsafe void EnsureDestScratch(int width, int height)
     {
         width = Math.Max(1, width);
         height = Math.Max(1, height);
-        if (_destScratchTex != 0 && _destScratchW >= width && _destScratchH >= height) return;
+        if (_destScratchTex != 0 && _destScratchW == width && _destScratchH == height) return;
         if (_destScratchTex != 0) _gl.DeleteTexture(_destScratchTex);
+        if (_destScratchFbo != 0) _gl.DeleteFramebuffer(_destScratchFbo);
 
         _destScratchTex = _gl.GenTexture();
         _gl.BindTexture(TextureTarget.Texture2D, _destScratchTex);
