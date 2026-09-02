@@ -275,6 +275,19 @@ internal static class GlShaders
             else
                 blended = destination + source.rgb * 0.25;
             return vec4(clamp(blended, 0.0, 1.0), source.a);
+        #elif defined(GLES_MANUAL_DEST)
+            if (vSemiTrans == 0 || !stp) return source;
+            vec3 destination = texelFetch(uDest, ivec2(gl_FragCoord.xy), 0).rgb;
+            vec3 blended;
+            if (vBlendMode == 0)
+                blended = (destination + source.rgb) * 0.5;
+            else if (vBlendMode == 1)
+                blended = destination + source.rgb;
+            else if (vBlendMode == 2)
+                blended = destination - source.rgb;
+            else
+                blended = destination + source.rgb * 0.25;
+            return vec4(clamp(blended, 0.0, 1.0), source.a);
         #elif defined(GLES_OPAQUE_ONLY)
             return source;
         #else
@@ -387,7 +400,8 @@ internal static class GlShaders
                     "\n#define GLES_FRAMEBUFFER_FETCH_ARM 1" +
                     "\n#define GLES_DESTINATION_COLOR gl_LastFragColorARM",
                 _ => OperatingSystem.IsIOS()
-                    ? "\n#define GLES_OPAQUE_ONLY 1"
+                    ? "\n#define GLES_OPAQUE_ONLY 1" +
+                      "\n#define GLES_MANUAL_DEST 1"
                     : "\n#extension GL_EXT_blend_func_extended : require",
             };
         header += "\n#define GLES_UNIFIED_BLEND 1\nprecision highp float;\nprecision highp int;";

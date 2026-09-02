@@ -41,6 +41,9 @@ public sealed class GlBackend : IGpuBackend
     GlesFramebufferFetchPath _glesFramebufferFetchPath;
     TextureBarrierProc? _glesTextureBarrier;
     ShadingRateProc? _glesShadingRate;
+    uint _destScratchTex;
+    uint _destScratchFbo;
+    int _destScratchW, _destScratchH;
     byte[] _readback = [];
 
     readonly GlVertex[] _verts = new GlVertex[MaxVerts];
@@ -562,7 +565,7 @@ public sealed class GlBackend : IGpuBackend
         _vram.ReadRect(x, y, w, h, px);
     }
 
-    void BindPrimState(bool fast, GlDisplayRt? rt, uint destTex)
+    void BindPrimState(bool fast, GlDisplayRt? rt, uint destTex, bool manualDest = false)
     {
         uint program = fast ? _progPrimFast : _progPrim;
         int uTexWindow = fast ? _ufTexWindow : _uTexWindow;
@@ -580,7 +583,7 @@ public sealed class GlBackend : IGpuBackend
         _gl.ActiveTexture(TextureUnit.Texture0);
         _gl.BindTexture(TextureTarget.Texture2D, _vram.Texture);
         _gl.ActiveTexture(TextureUnit.Texture1);
-        _gl.BindTexture(TextureTarget.Texture2D, _kCheckMask != 0 ? destTex : _vram.Texture);
+        _gl.BindTexture(TextureTarget.Texture2D, _kCheckMask != 0 || manualDest ? destTex : _vram.Texture);
         _gl.ActiveTexture(TextureUnit.Texture0);
         if (rt != null)
         {
@@ -629,6 +632,27 @@ public sealed class GlBackend : IGpuBackend
         // is currently attached for drawing (mask checks, or direct VRAM draws).
         bool readsDrawTarget = (_kCheckMask != 0 && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None) ||
                                (rt == null && BatchSamplesVram());
+        bool iosManualDest = _gles && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None &&
+                             OperatingSystem.IsIOS();
+        bool manualDestNeedsCopy = iosManualDest && (_kCheckMask != 0 || _kTransparent);
+        if (manualDestNeedsCopy)
+        {
+            // No framebuffer fetch means transparent fragments cannot read the
+            // texture that is currently attached for drawing. Snapshot the
+            // current destination once per batch and blend from that copy.
+            int srcW = rt?.TexW ?? GlVram.Width;
+            int srcH = rt?.TexH ?? GlVram.Height;
+            EnsureDestScratch(srcW, srcH);
+            _gl.Disable(EnableCap.ScissorTest);
+            _gl.BindFramebuffer(FramebufferTarget.ReadFramebuffer, rt?.Fbo ?? _vram.Fbo);
+            _gl.BindFramebuffer(FramebufferTarget.DrawFramebuffer, _destScratchFbo);
+            _gl.BlitFramebuffer(0, 0, srcW, srcH, 0, 0, srcW, srcH,
+                ClearBufferMask.ColorBufferBit, BlitFramebufferFilter.Nearest);
+            _gl.BindFramebuffer(FramebufferTarget.Framebuffer, rt?.Fbo ?? _vram.Fbo);
+            _gl.Enable(EnableCap.ScissorTest);
+            destTex = _destScratchTex;
+            readsDrawTarget = rt == null && BatchSamplesVram();
+        }
         if (readsDrawTarget)
         {
             Barrier();
@@ -661,8 +685,8 @@ public sealed class GlBackend : IGpuBackend
             // order (important on the map) without repeating buffer uploads and
             // uniform setup for every blend-mode change during Crash's spin.
             _gl.BufferSubData<GlVertex>(BufferTargetARB.ArrayBuffer, 0, _verts.AsSpan(0, _count));
-            BindPrimState(true, rt, destTex);
-            BindPrimState(false, rt, destTex);
+            BindPrimState(true, rt, destTex, iosManualDest);
+            BindPrimState(false, rt, destTex, iosManualDest);
             _gl.Disable(EnableCap.Blend);
 
             int runStart = 0;
@@ -685,7 +709,7 @@ public sealed class GlBackend : IGpuBackend
         }
         else
         {
-            BindPrimState(false, rt, destTex);
+            BindPrimState(false, rt, destTex, iosManualDest);
             _gl.BufferSubData<GlVertex>(BufferTargetARB.ArrayBuffer, 0, _verts.AsSpan(0, _count));
 
             // Coarse shading cannot accelerate a mixed framebuffer-fetch shader,
@@ -694,41 +718,13 @@ public sealed class GlBackend : IGpuBackend
                                  _glesShadingRate != null && GlVram.Scale >= 8;
             if (coarseShading) _glesShadingRate!(0x96A9); // GL_SHADING_RATE_2X2_PIXELS_QCOM
 
-            bool iosFixedBlend = _gles && _glesFramebufferFetchPath == GlesFramebufferFetchPath.None &&
-                                 OperatingSystem.IsIOS();
-            if (iosFixedBlend)
+            if (iosManualDest)
             {
-                // iOS None is a correctness fallback. It intentionally has no
-                // second shader output, so use ordinary constant-color blending.
-                if (!_kTransparent)
-                {
-                    _gl.Disable(EnableCap.Blend);
-                    _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
-                }
-                else
-                {
-                    _gl.Enable(EnableCap.Blend);
-                    _gl.BlendFuncSeparate(BlendingFactor.ConstantColor, BlendingFactor.ConstantAlpha,
-                        BlendingFactor.One, BlendingFactor.Zero);
-                    if (_kBlend == 2)
-                    {
-                        _gl.BlendEquation(BlendEquationModeEXT.FuncAdd);
-                        SetBlendColor(0f, 1f);
-                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
-
-                        if (readsDrawTarget) Barrier();
-                        _gl.BlendEquationSeparate(BlendEquationModeEXT.FuncReverseSubtract, BlendEquationModeEXT.FuncAdd);
-                        SetBlendColor(1f, 1f);
-                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
-                    }
-                    else
-                    {
-                        _gl.BlendEquation(BlendEquationModeEXT.FuncAdd);
-                        SetBlendColor(_kBlend switch { 0 => 0.5f, 3 => 0.25f, _ => 1f },
-                            _kBlend == 0 ? 0.5f : 1f);
-                        _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
-                    }
-                }
+                // The shader resolves PS1 transparency from the destination
+                // snapshot. Fixed-function blending would apply the wrong
+                // factors when a PS1 texture has a zero mask bit.
+                _gl.Disable(EnableCap.Blend);
+                _gl.DrawArrays(PrimitiveType.Triangles, 0, (uint)_count);
             }
             else if (_glesFramebufferFetchPath != GlesFramebufferFetchPath.None)
             {
@@ -803,7 +799,32 @@ public sealed class GlBackend : IGpuBackend
 
     void SetBlend(float src, float dst) => _gl.Uniform4(_uBlend, src, src, src, dst);
 
-    void SetBlendColor(float src, float dst) => _gl.BlendColor(src, src, src, dst);
+    unsafe void EnsureDestScratch(int width, int height)
+    {
+        width = Math.Max(1, width);
+        height = Math.Max(1, height);
+        if (_destScratchTex != 0 && _destScratchW >= width && _destScratchH >= height) return;
+        if (_destScratchTex != 0) _gl.DeleteTexture(_destScratchTex);
+
+        _destScratchTex = _gl.GenTexture();
+        _gl.BindTexture(TextureTarget.Texture2D, _destScratchTex);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMinFilter, (int)GLEnum.Nearest);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureMagFilter, (int)GLEnum.Nearest);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapS, (int)GLEnum.ClampToEdge);
+        _gl.TexParameter(TextureTarget.Texture2D, TextureParameterName.TextureWrapT, (int)GLEnum.ClampToEdge);
+        _gl.TexImage2D(TextureTarget.Texture2D, 0, InternalFormat.Rgba8,
+            (uint)width, (uint)height, 0, PixelFormat.Rgba,
+            PixelType.UnsignedByte, null);
+        _gl.BindTexture(TextureTarget.Texture2D, 0);
+        _destScratchFbo = _gl.GenFramebuffer();
+        _gl.BindFramebuffer(FramebufferTarget.Framebuffer, _destScratchFbo);
+        _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0,
+            TextureTarget.Texture2D, _destScratchTex, 0);
+        CheckError("dest-scratch-fbo");
+        _destScratchW = width;
+        _destScratchH = height;
+        CheckError("dest-scratch");
+    }
 
     // Prefer the driver's GLES texture-barrier extension. It resolves the PS1
     // VRAM feedback dependency without stalling the CPU after every batch.
@@ -1131,6 +1152,8 @@ public sealed class GlBackend : IGpuBackend
         if (_progPresent != 0) _gl.DeleteProgram(_progPresent);
         if (_progPresent24 != 0) _gl.DeleteProgram(_progPresent24);
         if (_presentTex != 0) _gl.DeleteTexture(_presentTex);
+        if (_destScratchTex != 0) _gl.DeleteTexture(_destScratchTex);
+        if (_destScratchFbo != 0) _gl.DeleteFramebuffer(_destScratchFbo);
         if (_presentFbo != 0) _gl.DeleteFramebuffer(_presentFbo);
     }
 }
